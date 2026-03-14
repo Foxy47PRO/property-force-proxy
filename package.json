@@ -1,0 +1,15 @@
+{
+  "name": "property-force-npc-proxy",
+  "version": "1.0.0",
+  "description": "Proxy servidor para NPC con IA en Property Force",
+  "main": "proxy_server.js",
+  "scripts": {
+    "start": "node proxy_server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
