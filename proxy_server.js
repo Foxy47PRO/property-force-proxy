@@ -181,3 +181,26 @@ El agente te hace una pregunta. Respóndele de forma natural y útil, dándole i
     return res.status(500).json({ error: "Error interno" });
   }
 });
+ 
+// ── ENDPOINT DETECTAR PRECIO ACORDADO ─────────────────────
+// Analiza el texto del cliente para ver si acepta un precio
+app.post("/detectar-precio", async (req, res) => {
+  const secret = req.headers["x-roblox-secret"];
+  if (ROBLOX_SECRET && secret !== ROBLOX_SECRET) {
+    return res.status(401).json({ error: "No autorizado" });
+  }
+  const { textoCliente, textoJugador } = req.body;
+  
+  // Patrones simples de aceptación de precio
+  const aceptacion = /(acepto|de acuerdo|está bien|trato hecho|vale|perfecto|entendido|confirmado)/i;
+  const rechazo    = /(no puedo|demasiado|muy caro|imposible|no acepto|no llego)/i;
+  
+  // Buscar número en el mensaje del jugador
+  const numMatch = (textoJugador || "").match(/(\d[\d.,]*)/);
+  const precio = numMatch ? parseFloat(numMatch[1].replace(",","")) : null;
+  
+  const acepta  = aceptacion.test(textoCliente);
+  const rechaza = rechazo.test(textoCliente);
+  
+  return res.json({ acepta, rechaza, precio });
+});
