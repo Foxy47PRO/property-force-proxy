@@ -109,12 +109,26 @@ REGLAS: Responde en español. Máximo 2 frases de diálogo. Sin asteriscos ni em
       nuevaAgres = Math.min(100, agresividad + 6);
     }
  
+    // Detectar señales de rendición en el texto
+    const textoL = texto.toLowerCase();
+    const senalesRendicion = ["vale", "está bien", "de acuerdo", "me voy", "saldremos", 
+      "tiene razón", "lo entiendo", "acepto", "nos vamos", "nos iremos", "me rindo",
+      "voy a salir", "abandonar", "dejaremos"];
+    const seCinde = senalesRendicion.some(s => textoL.includes(s)) && delta > 5;
+ 
+    // Detectar punto crítico (NPC rechaza definitivamente)
+    const senalesRechazo = ["nunca", "jamás", "no me moveréis", "llamaré a la policía",
+      "os denuncio", "no me voy", "quitaos de aquí", "largo de aquí"];
+    const rechazoDefinitivo = senalesRechazo.some(s => textoL.includes(s)) && delta < -10;
+ 
     return res.json({
       respuesta: texto,
       delta,
       calma: nuevaCalma,
       desconfianza: nuevaDesconf,
       agresividad: nuevaAgres,
+      seCinde,
+      rechazoDefinitivo,
     });
  
   } catch (err) {
@@ -126,3 +140,44 @@ REGLAS: Responde en español. Máximo 2 frases de diálogo. Sin asteriscos ni em
 app.get("/", (req, res) => res.json({ status: "ok", juego: "Property Force NPC Proxy" }));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Proxy escuchando en puerto ${PORT}`));
+ 
+// ── ENDPOINT CHAT CLIENTE ──────────────────────────────────
+app.post("/cliente", async (req, res) => {
+  const secret = req.headers["x-roblox-secret"];
+  if (ROBLOX_SECRET && secret !== ROBLOX_SECRET) {
+    return res.status(401).json({ error: "No autorizado" });
+  }
+ 
+  const { cliente, tipoOcupante, dificultad, mensajeJugador, mensajeOriginal, esInicio } = req.body;
+  if (!mensajeJugador) return res.status(400).json({ error: "Falta mensajeJugador" });
+ 
+  const personalidadCliente = `Eres ${cliente || "un propietario"}, el dueño de una propiedad que ha sido ocupada ilegalmente. Has contactado con una empresa de recuperación de propiedades. Estás nervioso y desesperado pero agradecido de que alguien te ayude. Dificultad del caso: ${dificultad || "Media"}.`;
+ 
+  const systemPrompt = esInicio
+    ? `${personalidadCliente}
+Acabas de explicar tu situación básica. Ahora añade UN detalle importante adicional sobre el caso que no mencionaste antes: algo sobre los ocupantes, la situación legal, el tiempo que llevan, o algo que le preocupa especialmente. Máximo 2 frases. En español. Sin asteriscos.`
+    : `${personalidadCliente}
+El agente te hace una pregunta. Respóndele de forma natural y útil, dándole información relevante sobre el caso. Máximo 2 frases. En español. Sin asteriscos.`;
+ 
+  try {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_API_KEY}` },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        max_tokens: 100,
+        temperature: 0.8,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: mensajeJugador === "__inicio__" ? "Cuéntame más sobre el caso" : mensajeJugador },
+        ],
+      }),
+    });
+    if (!response.ok) return res.status(502).json({ error: "Error de API" });
+    const data = await response.json();
+    const texto = data.choices?.[0]?.message?.content?.trim() || "...";
+    return res.json({ respuesta: texto });
+  } catch (err) {
+    return res.status(500).json({ error: "Error interno" });
+  }
+});
