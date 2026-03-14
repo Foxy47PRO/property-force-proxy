@@ -11,15 +11,14 @@ app.post("/npc", async (req, res) => {
     return res.status(401).json({ error: "No autorizado" });
   }
  
-  const { tipoOcupante, calma, desconfianza, agresividad, convencimiento, mensajeJugador, historial } = req.body;
- 
+  const { tipoOcupante, calma, desconfianza, agresividad, convencimiento, mensajeJugador, historial, esFinal } = req.body;
   if (!mensajeJugador) return res.status(400).json({ error: "Falta mensajeJugador" });
  
-  const estadoEmocional = agresividad > 65 ? "estás muy agitado y a la defensiva"
-    : agresividad > 40 ? "estás tenso y desconfiado"
-    : desconfianza > 60 ? "no te fías nada de la situación"
-    : calma > 65 ? "estás relativamente tranquilo pero alerta"
-    : "estás nervioso pero controlado";
+  const estadoEmocional = agresividad > 65 ? "muy agitado y a la defensiva"
+    : agresividad > 40 ? "tenso y desconfiado"
+    : desconfianza > 60 ? "no te fías nada"
+    : calma > 65 ? "relativamente tranquilo pero alerta"
+    : "nervioso pero controlado";
  
   const convPct = convencimiento || 0;
   const disposicion = convPct < 25 ? "no tienes ninguna intención de irte"
@@ -28,20 +27,37 @@ app.post("/npc", async (req, res) => {
     : "estás casi convencido, solo necesitas un último empujón";
  
   const personalidades = {
-    familia:      "una familia con niños pequeños en situación desesperada. Hablas con miedo pero con determinación.",
-    okupa:        "un okupa experimentado que conoce sus derechos. Eres directo, cortante y difícil de convencer.",
+    familia:      "una familia con niños pequeños en situación desesperada. Hablas con miedo pero con determinación de proteger a tus hijos.",
+    okupa:        "un okupa experimentado que conoce sus derechos. Eres directo, cortante y muy difícil de convencer.",
     inquilino:    "un inquilino que no puede pagar porque perdió su trabajo. Te sientes culpable pero desesperado.",
     organizacion: "parte de una red organizada. Hablas con frialdad calculada y nunca pierdes los nervios.",
-    anciano:      "un anciano de 78 años que no entiende bien la situación y se siente intimidado.",
+    anciano:      "un anciano de 78 años que no entiende la situación y se siente intimidado.",
     estudiantes:  "estudiantes que ocuparon el piso por necesidad. Sois jóvenes, algo insolentes pero asustados.",
   };
  
-  const systemPrompt = `Eres ${personalidades[tipoOcupante] || personalidades.familia}
+  // Prompt especial para mensaje final
+  const systemPrompt = esFinal
+    ? `Eres ${personalidades[tipoOcupante] || personalidades.familia}
+La conversación ha terminado. ESTADO FINAL: ${estadoEmocional}. CONVENCIMIENTO: ${convPct}%.
+${convPct >= 100 ? "Has sido convencido y vas a salir. Di una frase de despedida realista, resignada o emotiva según tu personalidad." : "No has sido convencido y el agente se rinde. Di una frase final de victoria, desafiante o aliviada según tu personalidad."}
+Máximo 2 frases. Sin asteriscos ni emojis. En español.`
+    : `Eres ${personalidades[tipoOcupante] || personalidades.familia}
 ESTADO: ${estadoEmocional}. DISPOSICIÓN: ${disposicion}.
-Responde SIEMPRE en español. Máximo 2 frases cortas y directas. Sin asteriscos ni emojis. Refleja tu estado emocional. Nunca rompas el personaje.`;
+ 
+Responde al mensaje del agente de forma realista. Luego en una línea nueva escribe EXACTAMENTE en este formato:
+DELTA: [número entre -20 y 25]
+ 
+El DELTA representa cuánto cambia tu convencimiento según lo que dijo el agente:
+- Mensaje muy convincente, empático, bien argumentado: entre 15 y 25
+- Mensaje razonable pero no especialmente convincente: entre 5 y 14  
+- Mensaje neutro o irrelevante: entre -2 y 4
+- Mensaje que te molesta, amenaza o empeora la situación: entre -20 y -3
+Ten en cuenta tu estado emocional actual — si estás agresivo los mensajes amables funcionan menos.
+ 
+REGLAS: Responde en español. Máximo 2 frases de diálogo. Sin asteriscos ni emojis. Nunca rompas el personaje.`;
  
   const messages = [];
-  if (historial) for (const h of historial.slice(-6))
+  if (historial) for (const h of historial.slice(-8))
     messages.push({ role: h.rol === "jugador" ? "user" : "assistant", content: h.texto });
   messages.push({ role: "user", content: mensajeJugador });
  
@@ -49,7 +65,12 @@ Responde SIEMPRE en español. Máximo 2 frases cortas y directas. Sin asteriscos
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_API_KEY}` },
-      body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 120, messages: [{ role: "system", content: systemPrompt }, ...messages] }),
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        max_tokens: 160,
+        temperature: 0.85,
+        messages: [{ role: "system", content: systemPrompt }, ...messages],
+      }),
     });
  
     if (!response.ok) {
@@ -58,13 +79,46 @@ Responde SIEMPRE en español. Máximo 2 frases cortas y directas. Sin asteriscos
     }
  
     const data = await response.json();
-    const texto = data.choices?.[0]?.message?.content?.trim() || "...";
-    const t = texto.toLowerCase();
-    const impacto = (t.includes("!") || t.includes("largo") || t.includes("fuera")) ? "negativo"
-      : (t.includes("entend") || t.includes("quiz") || t.includes("puede")) ? "positivo" : "neutro";
+    const textoCompleto = data.choices?.[0]?.message?.content?.trim() || "...";
  
-    return res.json({ respuesta: texto, impacto });
+    if (esFinal) {
+      return res.json({ respuesta: textoCompleto, delta: 0 });
+    }
+ 
+    // Extraer DELTA del texto
+    const deltaMatch = textoCompleto.match(/DELTA:\s*(-?\d+)/);
+    const delta = deltaMatch ? Math.min(25, Math.max(-20, parseInt(deltaMatch[1]))) : 5;
+ 
+    // Limpiar el texto — quitar la línea DELTA
+    const texto = textoCompleto.replace(/\n?DELTA:\s*-?\d+/g, "").trim();
+ 
+    // Calcular nuevos estados según el delta
+    let nuevaCalma = calma, nuevaDesconf = desconfianza, nuevaAgres = agresividad;
+    if (delta > 10) {
+      nuevaCalma = Math.min(100, calma + 8);
+      nuevaDesconf = Math.max(0, desconfianza - 10);
+      nuevaAgres = Math.max(0, agresividad - 8);
+    } else if (delta > 0) {
+      nuevaCalma = Math.min(100, calma + 3);
+      nuevaDesconf = Math.max(0, desconfianza - 4);
+    } else if (delta < -5) {
+      nuevaAgres = Math.min(100, agresividad + 15);
+      nuevaCalma = Math.max(0, calma - 10);
+      nuevaDesconf = Math.min(100, desconfianza + 8);
+    } else if (delta < 0) {
+      nuevaAgres = Math.min(100, agresividad + 6);
+    }
+ 
+    return res.json({
+      respuesta: texto,
+      delta,
+      calma: nuevaCalma,
+      desconfianza: nuevaDesconf,
+      agresividad: nuevaAgres,
+    });
+ 
   } catch (err) {
+    console.error("Error:", err);
     return res.status(500).json({ error: "Error interno" });
   }
 });
@@ -72,4 +126,3 @@ Responde SIEMPRE en español. Máximo 2 frases cortas y directas. Sin asteriscos
 app.get("/", (req, res) => res.json({ status: "ok", juego: "Property Force NPC Proxy" }));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Proxy escuchando en puerto ${PORT}`));
- 
