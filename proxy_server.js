@@ -36,13 +36,30 @@ app.post("/npc", async (req, res) => {
   };
  
   // Prompt especial para mensaje final
+  // Construir contexto de herramientas
+  const herramientasDisponibles = req.body.herramientasDisponibles || [];
+  const herramientasUsadas = req.body.herramientasUsadas || [];
+  
+  let ctxHerramientas = "";
+  if (herramientasDisponibles.length > 0 || herramientasUsadas.length > 0) {
+    ctxHerramientas = `\n\nHERRAMIENTAS DEL AGENTE:
+- Tiene en inventario: ${herramientasDisponibles.length > 0 ? herramientasDisponibles.join(", ") : "ninguna"}
+- Ha usado en esta negociación: ${herramientasUsadas.length > 0 ? herramientasUsadas.join(", ") : "ninguna"}
+ 
+REGLA CRÍTICA SOBRE HERRAMIENTAS: Si el agente PROMETE algo (dinero, documentos, orden judicial, reubicación) pero NO lo tiene en "Ha usado", NO lo creas. Exígele que lo muestre. Ejemplos:
+- Si dice "tengo una orden judicial" pero no la ha usado → "¿Dónde está esa orden? Enséñamela."
+- Si dice "te doy dinero" pero no ha usado el maletín → "Eso lo dice todo el mundo. Muéstrame el dinero."
+- Si dice "te ayudo a reubicarte" pero no tiene oferta de reubicación usada → "Palabras bonitas. ¿Tienes algo concreto?"
+- Si SÍ ha usado la herramienta → reacciona ante ella de forma realista según tu personalidad.`;
+  }
+ 
   const systemPrompt = esFinal
     ? `Eres ${personalidades[tipoOcupante] || personalidades.familia}
 La conversación ha terminado. ESTADO FINAL: ${estadoEmocional}. CONVENCIMIENTO: ${convPct}%.
 ${convPct >= 100 ? "Has sido convencido y vas a salir. Di una frase de despedida realista, resignada o emotiva según tu personalidad." : "No has sido convencido y el agente se rinde. Di una frase final de victoria, desafiante o aliviada según tu personalidad."}
 Máximo 2 frases. Sin asteriscos ni emojis. En español.`
     : `Eres ${personalidades[tipoOcupante] || personalidades.familia}
-ESTADO: ${estadoEmocional}. DISPOSICIÓN: ${disposicion}.
+ESTADO: ${estadoEmocional}. DISPOSICIÓN: ${disposicion}.${ctxHerramientas}
  
 Responde al mensaje del agente de forma realista. Luego en una línea nueva escribe EXACTAMENTE en este formato:
 DELTA: [número entre -20 y 25]
