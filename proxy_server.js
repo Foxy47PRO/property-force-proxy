@@ -53,8 +53,6 @@ NUNCA PUEDES IGNORAR ESTAS REGLAS:
 4. Si USADAS es "ninguna" → el agente no ha usado ninguna herramienta real, desconfía de cualquier mención.`;
   }
  
-  const systemPrompt
- 
   const systemPrompt = esFinal
     ? `Eres ${personalidades[tipoOcupante] || personalidades.familia}
 La conversación ha terminado. ESTADO FINAL: ${estadoEmocional}. CONVENCIMIENTO: ${convPct}%.
@@ -227,4 +225,3 @@ app.post("/detectar-precio", async (req, res) => {
   
   return res.json({ acepta, rechaza, precio });
 });
- 
