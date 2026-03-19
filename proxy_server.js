@@ -11,7 +11,7 @@ app.post("/npc", async (req, res) => {
     return res.status(401).json({ error: "No autorizado" });
   }
  
-  const { tipoOcupante, calma, desconfianza, agresividad, convencimiento, mensajeJugador, historial, esFinal } = req.body;
+  const { tipoOcupante, calma, desconfianza, agresividad, convencimiento, mensajeJugador, historial, esFinal, herramientaContexto } = req.body;
   if (!mensajeJugador) return res.status(400).json({ error: "Falta mensajeJugador" });
  
   const estadoEmocional = agresividad > 65 ? "muy agitado y a la defensiva"
@@ -78,7 +78,11 @@ REGLAS: Responde en español. Máximo 2 frases de diálogo. Sin asteriscos ni em
   const messages = [];
   if (historial) for (const h of historial.slice(-8))
     messages.push({ role: h.rol === "jugador" ? "user" : "assistant", content: h.texto });
-  messages.push({ role: "user", content: mensajeJugador });
+  // Si hay acción de herramienta, añadirla como contexto de acción antes del mensaje
+  const mensajeFinal = herramientaContexto
+    ? `[ACCIÓN: ${herramientaContexto}]\n${mensajeJugador}`
+    : mensajeJugador;
+  messages.push({ role: "user", content: mensajeFinal });
  
   try {
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -223,3 +227,4 @@ app.post("/detectar-precio", async (req, res) => {
   
   return res.json({ acepta, rechaza, precio });
 });
+ 
